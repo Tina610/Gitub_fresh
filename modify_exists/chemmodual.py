@@ -13,44 +13,17 @@ import itertools
 from argparse import ArgumentParser
 
 
-def nochange():
-    multiclass = {
-        '6-巯基嘌呤': {'TPMT': ['剂量/药物毒性', '1A'], 'NUDT15': ['剂量/药物毒性', '1B']},
-        '硫唑嘌呤': {'TPMT': ['剂量/药物毒性', '1A'], 'NUDT15': ['剂量/药物毒性', '1B']},
-        '硫鸟嘌呤': {'TPMT': ['剂量/药物毒性', '1A']},
-        '氟尿嘧啶': {'DPYD': ['剂量/药物毒性', '1A']},
-        '甲氨蝶呤': {'MTHFR': ['剂量/疗效/药物毒性', '2A'], 'ABCB1': ['药物毒性', '2A'], 'MTRR': ['药物毒性', '2B']},
-        '长春新碱': {'ABCB1': ['疗效', '3']},
-        '天冬酰胺酶': {'SOD2': ['药物毒性', '3']},
-        '多柔比星': {'ABCB1': ['疗效', '3'], 'ABCB1(2677A/C/T)': ['其他', '3']},
-        '柔红霉素': {'ABCB1': ['疗效', '3']},
-        '阿糖胞苷': {'ABCB1': ['疗效', '3']},
-        '伊达比星': {'ABCB1': ['疗效', '3'], 'SLCO1B1': ['药物毒性', '3']},
-        '依托泊苷': {'ABCB1': ['代谢能力', '3'], 'SLCO1B1': ['疗效', '3']},
-        '氟达拉滨': {'SLCO1B1': ['药物毒性', '3']},
-        '白消安': {'GSTM1': ['代谢能力', '3']},
-    }
-    return multiclass
-
-
-def rs2list():
-    rslist = ['rs1800462', 'rs1800460', 'rs1142345', 'rs1800584', 'rs116855232', 'rs3918290',
-              'rs55886062', 'rs67376798', 'rs1801133', 'rs1045642', 'rs1801394', 'rs2032582',
-              'rs4880', 'rs1128503', 'rs10276036', 'rs2235033', 'rs2235013', 'rs4149056', 'rs2291075',
-              'rs3754446']
-    return rslist
-
 
 class CHEMdrug():
-    def __init__(self, chemhap, drug, multimutaion, c1info):
+    def __init__(self, chemhap, drug, multimutaion, c1info,externalrs):
         self.haplotype = chemhap
         self.drug = drug
         self.c1info = c1info
         self.annofile = multimutaion
-        self.multiclass = nochange()
         self.haplotypedict = {}
         self.drugdict = {}
         self.endchesite = {}
+        self.external=externalrs
 
     def readhaptype(self):
         work = xlrd.open_workbook(self.haplotype)
@@ -73,6 +46,7 @@ class CHEMdrug():
 
     def readdrug(self):
         work = xlrd.open_workbook(self.drug)
+        threeclass={}
         sheet = work.sheet_by_index(0)
         nrows = sheet.nrows
         for row in range(1, nrows):
@@ -81,11 +55,12 @@ class CHEMdrug():
                 ishaplotype = 'N'
             else:
                 ishaplotype = 'H'
-            Dict.addtodict5(self.drugdict, rowvalue[0], rowvalue[1], rowvalue[2], rowvalue[3], ishaplotype, rowvalue[5])
+            sitegene=rowvalue[1]+'('+rowvalue[2]+')'
+            Dict.addtodict5(self.drugdict,rowvalue[9],rowvalue[0], sitegene, rowvalue[3], ishaplotype, rowvalue[5])
 
     def readannofile(self):
         mutationrs = {}
-        listrs = rs2list()
+        listrs = self.rs2list()#######读取结果
         with open(self.annofile, 'r') as F:
             mark = None
             title = F.readline().strip().split('\t')
@@ -103,57 +78,73 @@ class CHEMdrug():
                         Dict.addtodict(mutationrs, lines[mark], gt)
 
         return mutationrs
+    
+    def readexternal(self):
+        extern={}
+        work=xlrd.open_workbook(self.external)
+        sheet=work.sheet_by_index(0)
+        for row in range(1,sheet.nrows):
+            rowvalue=sheet.row_values(row)
+            if not rowvalue[1] in extern:
+                extern[rowvalue[1]]=rowvalue[2]
+            else:
+                print('This rs'+rowvalue[1]+'has appears two')
+                
+        return extern
+    
 
     def searchdrug(self):
         mutationrs = self.readannofile()
-        for drug in self.drugdict.keys():
-            for gene in self.drugdict[drug].keys():
-                rscom = []
-                rssite = {}
-                for cloc in self.drugdict[drug][gene].keys():
-                    for rsid in self.drugdict[drug][gene][cloc].keys():
-                        for hap in self.drugdict[drug][gene][cloc][rsid].keys():
-                            genechem = gene + '(' + cloc + ')'
-                            genetype = ''
-                            if hap == 'N':
-                                if rsid in mutationrs:
-                                    genetype = rsid + ':' + mutationrs[rsid]
+        for partone in ['part1','part2','part3']:
+            #########如果按部分写####
+            for drug in self.drugdict.keys():
+                for gene in self.drugdict[drug].keys():
+                    rscom = []
+                    rssite = {}
+                    for cloc in self.drugdict[drug][gene].keys():
+                        for rsid in self.drugdict[drug][gene][cloc].keys():
+                            for hap in self.drugdict[drug][gene][cloc][rsid].keys():
+                                genechem = gene + '(' + cloc + ')'
+                                genetype = ''
+                                if hap == 'N':
+                                    if rsid in mutationrs:
+                                        genetype = rsid + ':' + mutationrs[rsid]
+                                    else:
+                                        genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
+    
+                                    if genetype in self.haplotypedict[drug][gene].keys():
+                                        Dict.addtodict3(self.endchesite, drug, 'N', genechem,
+                                                        [genetype.split(':')[1]] + self.haplotypedict[drug][gene][genetype])
+                                    else:
+                                        print('strange genetype: ' + hap+' '+rsid+' '+gene+drug)
                                 else:
-                                    genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
-
-                                if genetype in self.haplotypedict[drug][gene].keys():
-                                    Dict.addtodict3(self.endchesite, drug, 'N', genechem,
-                                                    [genetype.split(':')[1]] + self.haplotypedict[drug][gene][genetype])
-                                else:
-                                    print('strange genetype: ' + hap+' '+rsid+' '+gene+drug)
+                                    if rsid in mutationrs:
+                                        genetype = rsid + ':' + mutationrs[rsid]
+                                        rssite[genetype] = [genechem, mutationrs[rsid]]
+                                    else:
+                                        genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
+                                        rssite[genetype] = [genechem, self.drugdict[drug][gene][cloc][rsid][hap]]
+                                    rscom.append(genetype)
+                    if rscom:
+                        combiners = self.comiter(rscom)
+                        mark = 0
+                        for coms in combiners:
+                            if coms in self.haplotypedict[drug][gene].keys():
+                                mark += 1
+                                for site in coms.split(','):
+                                    if site in rssite:
+                                        Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0], [rssite[site][1]] +
+                                                        self.haplotypedict[drug][gene][coms])
+                                    else:
+                                        print('this rssite is not in list ' + site)
                             else:
-                                if rsid in mutationrs:
-                                    genetype = rsid + ':' + mutationrs[rsid]
-                                    rssite[genetype] = [genechem, mutationrs[rsid]]
-                                else:
-                                    genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
-                                    rssite[genetype] = [genechem, self.drugdict[drug][gene][cloc][rsid][hap]]
-                                rscom.append(genetype)
-                if rscom:
-                    combiners = self.comiter(rscom)
-                    mark = 0
-                    for coms in combiners:
-                        if coms in self.haplotypedict[drug][gene].keys():
-                            mark += 1
-                            for site in coms.split(','):
-                                if site in rssite:
-                                    Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0], [rssite[site][1]] +
-                                                    self.haplotypedict[drug][gene][coms])
-                                else:
-                                    print('this rssite is not in list ' + site)
+                                pass
+                        if mark == 0:
+                            for site in rssite:
+                                Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0],
+                                                [rssite[site][1]] + self.haplotypedict[drug][gene]['others'])
                         else:
-                            pass
-                    if mark == 0:
-                        for site in rssite:
-                            Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0],
-                                            [rssite[site][1]] + self.haplotypedict[drug][gene]['others'])
-                    else:
-                        print(gene + ' is haplotype')
+                            print(gene + ' is haplotype')
 
     def comiter(self, listscom):
         combine = []
@@ -379,6 +370,7 @@ def main():
     parser.add_argument('--anno', action='store', dest='anno', help='annofile multimutation', required=True)
     parser.add_argument('--C1', action='store', dest='tex', help='C1_infos.tex', required=True)
     parser.add_argument('--outC1',action='store',dest='out',help='C1_infos_temp.tex')
+    parser.add_argument('--external',action='store',dest='extern',help='haved the result',required=True)
     parser.add_argument('--check',action='store',dest='checksite',help='outfile is SLCO1B1 597C>T  CC')
     arg = parser.parse_args()
     chemhaplotype = CHEMdrug(arg.chem,arg.drug,arg.anno,arg.tex)
