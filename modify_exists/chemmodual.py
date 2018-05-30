@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 
 
 class CHEMdrug():
-    def __init__(self, chemhap, drug, multimutaion, c1info,externalrs):
+    def __init__(self, chemhap, drug, multimutaion, c1info,externalrs,out):
         self.haplotype = chemhap
         self.drug = drug
         self.c1info = c1info
@@ -23,7 +23,9 @@ class CHEMdrug():
         self.haplotypedict = {}
         self.drugdict = {}
         self.endchesite = {}
+        self.out=out
         self.external=externalrs
+        global rslist
 
     def readhaptype(self):
         work = xlrd.open_workbook(self.haplotype)
@@ -45,8 +47,9 @@ class CHEMdrug():
             Dict.addtodict3(self.haplotypedict, drug, gene, genetype, [basic, clinal, conclusion])
 
     def readdrug(self):
+        global rslist
         work = xlrd.open_workbook(self.drug)
-        threeclass={}
+        rslist=[]
         sheet = work.sheet_by_index(0)
         nrows = sheet.nrows
         for row in range(1, nrows):
@@ -55,12 +58,12 @@ class CHEMdrug():
                 ishaplotype = 'N'
             else:
                 ishaplotype = 'H'
-            sitegene=rowvalue[1]+'('+rowvalue[2]+')'
-            Dict.addtodict5(self.drugdict,rowvalue[9],rowvalue[0], sitegene, rowvalue[3], ishaplotype, rowvalue[5])
+            Dict.addtodict5(self.drugdict,rowvalue[9],rowvalue[0], rowvalue[1], rowvalue[2]+':'+rowvalue[3], ishaplotype, rowvalue[5])
+            rslist.append(rowvalue[3])
 
     def readannofile(self):
+        global rslist
         mutationrs = {}
-        listrs = self.rs2list()#######读取结果
         with open(self.annofile, 'r') as F:
             mark = None
             title = F.readline().strip().split('\t')
@@ -70,13 +73,38 @@ class CHEMdrug():
 
             for line in F:
                 lines = line.strip('\n').split('\t')
-                if lines[mark] in listrs:
-                    if lines[mark] == 'rs2032582' and re.search(r'^1/2:',lines[-1]):
-                        Dict.addtodict(mutationrs, lines[mark], 'CT')
-                    else:
-                        gt = self.percent(lines)
-                        Dict.addtodict(mutationrs, lines[mark], gt)
-
+                if lines[mark] == 'rs2032582' and re.search(r'^1/2:',lines[-1]):
+                    Dict.addtodict(mutationrs, lines[mark], 'CT')
+                elif lines[mark] =='rs8175347':
+                    [gt,fre] = self.percent(lines)
+                    if gt=='TT':
+                        nlty='(TA)6/(TA)6'
+                    elif gt=='TA':
+                        nlty='(TA)6/(TA)7'
+                    elif gt=='AA':
+                        nlty = '(TA)7/(TA)7'
+                    Dict.addtodict(mutationrs, lines[mark], nlty)
+                elif lines[mark] in rslist:
+                    [gt,fre] = self.percent(lines)
+                    Dict.addtodict(mutationrs, lines[mark], gt)
+                else:
+                    pattern1=re.compile('ABL1:NM_005157:exon\d+:c\.\w+:p\.(\w+)')
+                    pattern2=re.compile('IDH2:NM_002168:exon\d+:c\.\w+:p\.(\w+)')
+                    for rsp in rslist:
+                        if pattern1.search(lines[9]):
+                            paa=pattern1.search(lines[9]).groups(1)
+                            if rsp == paa:
+                                [gt,fre] = self.percent(lines)
+                                Dict.addtodict(mutationrs,rsp, fre)
+                        elif pattern2.search(lines[9]):
+                            paa=pattern2.search(lines[9]).group(1)
+                            if rsp == paa:
+                                [gt,fre] = self.percent(lines)
+                                Dict.addtodict(mutationrs, rsp, fre)
+                        else:
+                            pass
+                    Dict.addtodict(mutationrs,'rs8175347','TA)6/(TA)6')
+                            
         return mutationrs
     
     def readexternal(self):
@@ -95,56 +123,66 @@ class CHEMdrug():
 
     def searchdrug(self):
         mutationrs = self.readannofile()
-        for partone in ['part1','part2','part3']:
+        extern=self.external()
+        mutationrs.update(extern)
+        for partone in self.drugdict.keys():
             #########如果按部分写####
-            for drug in self.drugdict.keys():
-                for gene in self.drugdict[drug].keys():
+            for drug in self.drugdict[partone].keys():
+                for gene in self.drugdict[partone][drug].keys():
                     rscom = []
                     rssite = {}
-                    for cloc in self.drugdict[drug][gene].keys():
-                        for rsid in self.drugdict[drug][gene][cloc].keys():
-                            for hap in self.drugdict[drug][gene][cloc][rsid].keys():
-                                genechem = gene + '(' + cloc + ')'
-                                genetype = ''
-                                if hap == 'N':
-                                    if rsid in mutationrs:
-                                        genetype = rsid + ':' + mutationrs[rsid]
-                                    else:
-                                        genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
-    
-                                    if genetype in self.haplotypedict[drug][gene].keys():
-                                        Dict.addtodict3(self.endchesite, drug, 'N', genechem,
-                                                        [genetype.split(':')[1]] + self.haplotypedict[drug][gene][genetype])
-                                    else:
-                                        print('strange genetype: ' + hap+' '+rsid+' '+gene+drug)
+                    for rsid_c in self.drugdict[partone][drug][gene].keys():
+                        [rsid,caa]=str(rsid_c).split(':')[0]
+                        genesite=gene+'('+caa+')'
+                        for hap in self.drugdict[partone][drug][gene][rsid_c].keys():
+                            genetype = ''
+                            if hap == 'N':
+                                if rsid in mutationrs and str(rsid).startswith('rs'):
+                                    genetype = rsid + ':' + mutationrs[rsid]
+                                elif rsid in mutationrs and not str(rsid).startswith('rs'):
+                                    genetype = '阳性'
+                                elif str(rsid).startswith('rs'):
+                                    genetype = rsid + ':' + self.drugdict[partone][drug][gene][rsid_c][hap]
+                                elif not str(rsid).startswith('rs'):
+                                    genetype = '阴性'
+
+                                if genetype in self.haplotypedict[drug][gene].keys():
+                                    Dict.addtodict4(self.endchesite, drug,gene,genesite,hap,
+                                                    [genetype.split(':')[1]] + self.haplotypedict[drug][gene][genetype])
+                                elif genetype=='阳性':
+                                    Dict.addtodict4(self.endchesite, drug, gene, genesite,hap,[mutationrs[rsid]] + self.haplotypedict[drug][gene][rsid])
+                                elif genetype=='阴性':
+                                    Dict.addtodict4(self.endchesite,drug,gene, genesite,hap,[genetype]+self.haplotypedict[drug][gene][rsid])
                                 else:
-                                    if rsid in mutationrs:
-                                        genetype = rsid + ':' + mutationrs[rsid]
-                                        rssite[genetype] = [genechem, mutationrs[rsid]]
-                                    else:
-                                        genetype = rsid + ':' + self.drugdict[drug][gene][cloc][rsid][hap]
-                                        rssite[genetype] = [genechem, self.drugdict[drug][gene][cloc][rsid][hap]]
-                                    rscom.append(genetype)
-                    if rscom:
-                        combiners = self.comiter(rscom)
-                        mark = 0
-                        for coms in combiners:
-                            if coms in self.haplotypedict[drug][gene].keys():
-                                mark += 1
-                                for site in coms.split(','):
-                                    if site in rssite:
-                                        Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0], [rssite[site][1]] +
-                                                        self.haplotypedict[drug][gene][coms])
-                                    else:
-                                        print('this rssite is not in list ' + site)
+                                    print('{} u do not think about'.format(genetype))
+                                    
                             else:
-                                pass
-                        if mark == 0:
-                            for site in rssite:
-                                Dict.addtodict3(self.endchesite, drug, 'H', rssite[site][0],
-                                                [rssite[site][1]] + self.haplotypedict[drug][gene]['others'])
+                                if rsid in mutationrs:
+                                    genetype = rsid + ':' + mutationrs[rsid]
+                                    rssite[genetype] = [genesite, mutationrs[rsid]]
+                                else:
+                                    genetype = rsid + ':' + self.drugdict[partone][drug][gene][rsid_c][hap]
+                                    rssite[genetype] = [genesite, self.drugdict[partone][drug][gene][rsid_c][hap]]
+                                rscom.append(genetype)
+                if rscom:
+                    combiners = self.comiter(rscom)
+                    mark = 0
+                    for coms in combiners:
+                        if coms in self.haplotypedict[drug][gene].keys():
+                            mark += 1
+                            for site in coms.split(','):
+                                if site in rssite:
+                                    Dict.addtodict4(self.endchesite, drug, gene,rssite[site][0],'H',[rssite[site][1]]+self.haplotypedict[drug][gene][coms])
+                                else:
+                                    print('this rssite is not in list ' + site)
                         else:
-                            print(gene + ' is haplotype')
+                            pass
+                    if mark == 0:
+                        for site in rssite:
+                            Dict.addtodict4(self.endchesite,drug,gene,rssite[site][0], 'H',
+                                            [rssite[site][1]] + self.haplotypedict[drug][gene]['others'])
+                    else:
+                        print(gene + ' is haplotype')
 
     def comiter(self, listscom):
         combine = []
@@ -198,153 +236,57 @@ class CHEMdrug():
         for key1 in self.endchesite.keys():
             drug_lines = 0
             for key2 in self.endchesite[key1].keys():
-                if key2 == 'N':
-                    for key3 in self.endchesite[key1][key2].keys():
-                        [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3]
-                        n_clinal = self.numlin(clinal, 35)
-                        n_conclusion = self.numlin(conclusion, 3)
-                        drug_lines = drug_lines + n_clinal * 0.7 + n_conclusion
-                else:
-                    key3list = list(self.endchesite[key1][key2].keys())
-                    [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3list[0]]
-                    n_clinal = self.numlin(clinal, 35)
-                    drug_lines = drug_lines + len(key3list) + n_clinal * 0.7
+                for key3 in self.endchesite[key1][key2].keys():
+                        for key4 in self.endchesite[key1][key2][key4].keys():
+                            if key4=='N':
+                                [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3][key4]
+                                n_clinal = self.numlin(clinal, 35)
+                                n_conclusion = self.numlin(conclusion, 3)
+                                drug_lines = drug_lines + n_clinal * 0.7 + n_conclusion
+                            else:
+                                key3list = list(self.endchesite[key1][key2].keys())
+                                [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3list[0]]
+                                n_clinal = self.numlin(clinal, 35)
+                                drug_lines = drug_lines + len(key3list) + n_clinal * 0.7
             temp_chemsit[key1] = int(drug_lines)
         return temp_chemsit
 
     def outcheck(self,checkout):
         with open(checkout,'w') as OUT:
             for drug in self.endchesite:
-                for hap in self.endchesite[drug].keys():
-                    for site in self.endchesite[drug][hap].keys():
-                        gene,cloc = re.search('(\w+)\((..+)\)', site).groups()
-                        OUT.write(gene+'\t'+cloc+'\t'+self.endchesite[drug][hap][site][0]+'\n')
+                for gene in self.endchesite[drug].keys():
+                    for site in self.endchesite[drug][gene].keys():
+                        for hap in self.endchesite[drug][gene][site].keys():
+                            OUT.write(gene+'\t'+site+'\t'+self.endchesite[drug][gene][site][hap][0]+'\n')
 
 
 
-    def modifyC1(self,out):
-        temp_chemsite = self.computlines()
-        with open(out, 'w') as C1:
-            F = open(self.c1info, 'r')
-            for line in F:
-                C1.write(line)
-            F.close()
-
-            if '氟达拉滨' in self.endchesite.keys():
-                for key2 in self.endchesite['氟达拉滨'].keys():
-                    for key3 in self.endchesite['氟达拉滨'][key2].keys():
-                        values = self.endchesite['氟达拉滨'][key2][key3]
-                        gene = re.search('(\w+)\(', key3).group(1)
-                        [mutiltype, score] = self.multiclass['氟达拉滨'][gene]
-                        rowfirst = temp_chemsite['氟达拉滨']
-                        C1.write('\multirow{' + str(rowfirst) + '}{*}{氟达拉滨} & ' + key3 + '& ' + values[0] + ' & ' + values[1] + ' & ' + mutiltype + ' & ' + values[3] + ' & ' + score + r'\\\cline{2-7}& \multicolumn{6}{ p{13cm} |}{' + values[2] + r'}\\ \hline'+'\n')
-                        C1.write(r'\end{xltabular}'+'\n')
-                        C1.write(r'\newpage' + '\n')
-            C1.write(
-                r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-            temp_chemsite.pop('氟达拉滨')
-            self.endchesite.pop('氟达拉滨')
-            init_len = 0
-            while (len(temp_chemsite.keys()) > 0):
-                newpage = False
-                totalrow = 21
-                for drug, nlines in sorted(temp_chemsite.items(), key=lambda item: item[1], reverse=True):
-                    if init_len + int(nlines) > totalrow:
-                        continue
-                    else:
-                        newpage = True
-                    n = 0
-                    if 'N' in self.endchesite[drug].keys() and 'H' in self.endchesite[drug].keys():
-                        for hapy in sorted(self.endchesite[drug].keys()):
-                            for site in self.endchesite[drug][hapy].keys():
-                                n += 1
-                                siterow = len(self.endchesite[drug][hapy].keys())
-                                info = self.endchesite[drug][hapy][site]
-                                gene = re.search('(\w+)\(', site).group(1)
-                                if site in self.multiclass:
-                                    [mutiltype, score] = self.multiclass[drug][site]
-                                else:
-                                    [mutiltype, score] = self.multiclass[drug][gene]
-
-                                if hapy == 'H':
-                                    if n == 1:
-                                        C1.write('\multirow{' + str(nlines) + '}{*}{' + drug + '} & ' + site + ' & ' + info[0] + '& \multirow{' + str(siterow) + '}{*}{' + info[1] + '} & \multirow{' + str(siterow) + '}{2cm}{' + mutiltype + '} & \multirow{' + str(siterow) + '}{2cm}{' + info[3] + '} & \multirow{' + str(siterow) + '}{*}{' + score + r'} \\ \cline{2-3}' + '\n')
-                                    elif n < siterow:
-                                        C1.write('& ' + site + '&' + info[0] + '&&&&' + r'\\\cline{2-3}' + '\n')
-                                    else:
-                                        C1.write('& ' + site + '&' + info[0] + '&&&&' + r'\\\cline{2-7}' + '\n')
-                                        C1.write('& \multicolumn{6}{ p{13cm} |}{' + info[2] + r'}\\\cline{2-7}' + '\n')
-
-                                else:
-                                    C1.write(r'& ' + site + '&' + info[0] + '& ' + info[1] + '& ' + mutiltype + '& ' + info[3] + '& ' + score + r'\\\cline{2-7}' + '\n')
-                                    C1.write(r'& \multicolumn{6}{ p{13cm} |}{' + info[2] + r'}\\\hline' + '\n')
-                        self.endchesite.pop(drug)
-                        temp_chemsite.pop(drug)
-                        init_len += nlines
-
-                    elif ['N'] == list(self.endchesite[drug].keys()):
-                        for site in self.endchesite[drug]['N']:
-                            n += 1
-                            siterow = len(self.endchesite[drug]['N'].keys())
-                            info = self.endchesite[drug]['N'][site]
-                            gene = re.search('(\w+)\(', site).group(1)
-                            if site in self.multiclass:
-                                [mutiltype, score] = self.multiclass[drug][site]
-                            else:
-                                [mutiltype, score] = self.multiclass[drug][gene]
-                            if n == 1:
-                                C1.write(
-                                    r'\multirow{' + str(nlines) + '}{*}{' + drug + '} & ' + site + '& ' + info[0] + ' & ' +info[1] + '&' + mutiltype + '&' + info[3] + '&' + score + r'\\ \cline{2-7}' + '\n')
-                                C1.write(r'& \multicolumn{6}{ p{13cm} |}{' + info[2])
-                                if n==siterow:
-                                    C1.write(r'}\\ \hline' + '\n')
-                                else:
-                                    C1.write(r'}\\ \cline{2-7}' + '\n')
-
-                            else:
-                                C1.write('& ' + site + '& ' + info[0] + '& ' + info[1] + '& ' + mutiltype + '& ' + info[3] + '& ' + score + r'\\\cline{2-7}' + '\n')
-                                C1.write(r'& \multicolumn{6}{ p{13cm} |}{' + info[2])
-                                if n == siterow:
-                                    C1.write(r'}\\ \hline' + '\n')
-                                else:
-                                    C1.write(r'}\\\cline{2-7}' + '\n')
-                        self.endchesite.pop(drug)
-                        temp_chemsite.pop(drug)
-                        init_len += nlines
-
-                    elif ['H'] == list(self.endchesite[drug].keys()):
-                        for site in self.endchesite[drug]['H']:
-                            n += 1
-                            siterow = len(self.endchesite[drug]['H'].keys())
-                            info = self.endchesite[drug]['H'][site]
-                            gene = re.search('(\w+)\(', site).group(1)
-                            if site in self.multiclass:
-                                [mutiltype, score] = self.multiclass[drug][site]
-                            else:
-                                [mutiltype, score] = self.multiclass[drug][gene]
-                            if n == 1:
-                                C1.write('\multirow{' + str(nlines) + '}{*}{' + drug + '} & ' + site + ' & ' + info[0] + '& \multirow{' + str(siterow) + '}{*}{' + info[1] + '} & \multirow{' + str(siterow) + '}{2cm}{' + mutiltype +'} & \multirow{' + str(siterow) + '}{2cm}{' + info[3] + '} & \multirow{' + str(siterow) + '}{*}{' + score + r'} \\ \cline{2-3}' + '\n')
-                            elif n < siterow:
-                                C1.write('& ' + site + '&' + info[0] + '&&&&' + r'\\\cline{2-3}' + '\n')
-                            else:
-                                C1.write('& ' + site + '&' + info[0] + '&&&&' + r'\\\cline{2-7}' + '\n')
-                                C1.write('& \multicolumn{6}{ p{13cm} |}{' + info[2] + r'}\\\hline' + '\n')
-                        self.endchesite.pop(drug)
-                        temp_chemsite.pop(drug)
-                        init_len += nlines
-                if not newpage:
-                    C1.write(r'\end{xltabular}' + '\n')
-                    C1.write(r'\newpage' + '\n')
-                    C1.write(
-                        r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'+r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                    init_len = 0
-                else:
-                    pass
-            C1.write(r'\end{xltabular}' + '\n')
-            C1.write(r'\newpage' + '\n')
-
-
+    def modifyC1(self):
+        temp_chemsite=self.computlines()
+        OUT=open(self.out,'w')
+        for c1tex in ['chemotherapy.tex','drug_target.tex','Support_therapy.tex']:
+            parttex=os.path.join(self.c1info,c1tex)
+            with open(parttex,'r') as T:
+                for line in T:
+                    for drug in self.endchesite.keys():
+                        for gene in self.endchesite[drug].keys():
+                            for site in self.endchesite[drug][gene].keys():
+                                for hap in self.endchesite[drug][gene][site].keys():
+                                    if re.search(r'{numline}{*}' + '{' + drug + '}', line):
+                                        line = re.sub('{numline}', temp_chemsite[drug], line)
+                                    elif re.search(r'label.haptype.'+drug+'.'+gene,line):
+                                        line=re.sub(r'label.haptype.'+drug+'.'+gene,self.endchesite[drug][gene][site]['H'][1],line)
+                                    elif re.search(r'label.toxicity.'+drug+'.'+gene,line):
+                                        line=re.sub(r'label.toxicity.'+drug+'.'+gene,self.endchesite[drug][gene][site]['H'][3],line)
+                                    elif re.search(site,line) and re.search(r'XX',line):
+                                        line=re.sub(r'XX',self.endchesite[drug][gene][site][hap][0],line)
+                                    elif re.search(r'label.haptype.'+drug+'.clin.'+gene,line):
+                                        line=re.sub(r'label.haptype.'+drug+'.clin.'+gene,self.endchesite[drug][gene][site]['H'][2],line)
+                                    elif re.search(r'label.genetype.'+drug+'.clin.'+site,line):
+                                        line=re.sub(r'label.genetype.'+drug+'.clin.'+site,line,self.endchesite[drug][gene][hap][2],line)
+                    OUT.write(line)
+                    
+                    
     def percent(self, lines):
         wild = 0.33
         homozygote = 0.67
@@ -360,7 +302,8 @@ class CHEMdrug():
         else:
             result = lines[3] + lines[4]
         print(result)
-        return result
+        per=('%.2f\%%' % (per * 100))
+        return [result,per]
 
 
 def main():
