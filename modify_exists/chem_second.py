@@ -54,15 +54,13 @@ class CHEMdrug():
         nrows = sheet.nrows
         for row in range(1, nrows):
             rowvalue = sheet.row_values(row)
-            basic = r'\\'.join([rowvalue[5][i:i + 6] for i in range(0, len(rowvalue[5]), 6)])
-            basic = '\makecell{' + basic + '}'
             if sheet.cell(row, 4).ctype == 0:
                 ishaplotype = 'N'
             else:
                 ishaplotype = 'H'
             cloc = rowvalue[2].replace('_', '\_')
             Dict.addtodict5(self.drugdict, rowvalue[9], rowvalue[0], rowvalue[1], cloc + ':' + rowvalue[3], ishaplotype,
-                            basic)
+                            rowvalue[5])
             rslist.append(rowvalue[3])
     
     def readannofile(self):
@@ -82,11 +80,11 @@ class CHEMdrug():
                 elif lines[mark] == 'rs8175347':
                     [gt, fre] = self.percent(lines)
                     if gt == 'TT':
-                        nlty = r'\makecell{(TA)6/\\(TA)6}'
+                        nlty = '(TA)6/(TA)6'
                     elif gt == 'TA':
-                        nlty = r'\makecell{(TA)6/\\(TA)7}'
+                        nlty = '(TA)6/(TA)7'
                     elif gt == 'AA':
-                        nlty = r'\makecell{(TA)7/\\(TA)7}'
+                        nlty = '(TA)7/(TA)7'
                     Dict.addtodict(mutationrs, lines[mark], nlty)
                 elif lines[mark] in rslist:
                     [gt, fre] = self.percent(lines)
@@ -253,7 +251,6 @@ class CHEMdrug():
             drug_lines = 0
             for key2 in sorted(self.endchesite[key1].keys()):
                 for key3 in sorted(self.endchesite[key1][key2].keys()):
-                    key4list = list(self.endchesite[key1][key2][key3].keys())
                     for key4 in sorted(self.endchesite[key1][key2][key3].keys()):
                         if key3 == 'N':
                             [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3][key4]
@@ -263,13 +260,13 @@ class CHEMdrug():
                             Dict.addtodict3(temp_chemsit, key1, key4, 'conclusion', n_conclusion)
                             Dict.addtodict3(temp_chemsit, key1, key4, 'clinal', n_clinal)
                         else:
-                            
+                            key4list = list(self.endchesite[key1][key2][key3].keys())
                             for key4 in self.endchesite[key1][key2][key3].keys():
                                 [basic, hploy, clinal, conclusion] = self.endchesite[key1][key2][key3][key4list[0]]
                                 n_clinal = self.numlin(clinal, 35)
                                 Dict.addtodict3(temp_chemsit, key1, key4, 'conclusion', len(key4list))
                                 Dict.addtodict3(temp_chemsit, key1, key4, 'clinal', n_clinal)
-                    drug_lines = drug_lines + len(key4list) + n_clinal * 0.7
+                            drug_lines = drug_lines + len(key4list) + n_clinal * 0.7
             all_num_tex[key1] = int(drug_lines)
         return temp_chemsit, all_num_tex
     
@@ -288,8 +285,6 @@ class CHEMdrug():
         for c1tex in ['chemotherapy.tex', 'drug_target.tex', 'Support_therapy.tex']:
             parttex = os.path.join(self.c1info, c1tex)
             print('road is :' + parttex)
-            total = 7 if c1tex == 'chemotherapy.tex' else 34
-            init_len=0
             with open(parttex, 'r') as T:
                 for line in T:
                     for drug in sorted(self.endchesite.keys(), reverse=True):
@@ -297,22 +292,9 @@ class CHEMdrug():
                             for hap in sorted(self.endchesite[drug][gene].keys()):
                                 for site in sorted(self.endchesite[drug][gene][hap].keys()):
                                     allnums = all_num_tex[drug]
+                                    # if drug=='6-巯基嘌呤':print(hap,site)
                                     if re.search(r'{numline}{\*}' + '{' + drug + '}', line):
                                         line = re.sub('numline', str(allnums), line)
-                                        if init_len > total:
-                                            # print('outline +++++++++++++++++++++++++----------')
-                                            init_len = 0
-                                            total = 34
-                                            # line=re.sub(r'cline{\d+-\d+}','hline',line)
-                                            OUT.write('\end{xltabular}\n')
-                                            OUT.write(r'\newpage' + '\n')
-                                            OUT.write(
-                                                r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                        if drug == '6-巯基嘌呤': allnums = 4
-                                        line = re.sub('numline', str(allnums), line)
-                                        init_len += temp_chemsite[drug][site]['conclusion']
-                                        print(init_len, drug, site)
                                     if re.search(r'label.haptype.' + drug + '.' + gene, line) and hap == 'H':
                                         line = re.sub(r'label.haptype.' + drug + '.' + gene,
                                                       self.endchesite[drug][gene][hap][site][1], line)
@@ -320,39 +302,13 @@ class CHEMdrug():
                                         line = re.sub(r'label.toxicity.' + drug + '.' + gene,
                                                       self.endchesite[drug][gene][hap][site][3], line)
                                     if line.find(site) != -1 and re.search(r'XX', line):
-                                        init_len += 1
-                                        if init_len > total:
-                                            line = re.sub(r'cline{2-7}', r'hline', line)
-                                        temp = r'\\'.join([site[i:i + 18] for i in range(0, len(site), 18)])
-                                        line = line.replace(site, r'\makecell{' + temp + '}')
                                         line = re.sub(r'XX', self.endchesite[drug][gene][hap][site][0], line)
                                     if re.search(r'label.haptype.' + drug + '.clin.' + gene, line) and hap == 'H':
-                                        if init_len > total:
-                                            init_len = 0
-                                            total = 34
-                                            OUT.write('\end{xltabular}\n')
-                                            OUT.write(r'\newpage' + '\n')
-                                            OUT.write(
-                                                r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                            line = re.sub(r'^&', r'\multirow{' + str(
-                                                temp_chemsite[drug][site]['clinal'] + 1) + '}{*}{' + drug + '}&', line)
-                                        line = re.sub(r'label.haptype.' + drug + '.clin.' + gene,gene + ' ' + self.endchesite[drug][gene]['H'][site][1] + '型:'+self.endchesite[drug][gene][hap][site][2], line)
-                                        init_len += temp_chemsite[drug][site]['clinal']
+                                        line = re.sub(r'label.haptype.' + drug + '.clin.' + gene,
+                                                      self.endchesite[drug][gene][hap][site][2], line)
                                     if line.find('label.genetype.' + drug + '.clin.' + site) != -1:
-                                        if init_len > total:
-                                            init_len = 0
-                                            total = 34
-                                            OUT.write('\end{xltabular}\n')
-                                            OUT.write(r'\newpage' + '\n')
-                                            OUT.write(
-                                                r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                            line = re.sub(r'^&', r'\multirow{' + str(
-                                                temp_chemsite[drug][site]['conclusion']) + '}{*}{' + drug + '}&', line)
-                                        line = line.replace('label.genetype.' + drug + '.clin.' + site,site + ' ' + self.endchesite[drug][gene][hap][site][0] + '型:'+self.endchesite[drug][gene][hap][site][2])
-                                        init_len += temp_chemsite[drug][site]['clinal']
-                                        
+                                        line = line.replace('label.genetype.' + drug + '.clin.' + site,
+                                                            self.endchesite[drug][gene][hap][site][2])
                         if drug in ['伊马替尼', '尼罗替尼', '达沙替尼'] and re.search('multirow{\d+}{\*}{+' + drug + '}', line):
                             line = line.strip('\n')
                             for ablgene in abl_idh2[drug].keys():
@@ -361,100 +317,49 @@ class CHEMdrug():
                                     for ispositive in abl_idh2[drug][ablgene].keys():
                                         for genesite in abl_idh2[drug][ablgene][ispositive]:
                                             line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 \\ \cline{2-7}' + '\n'
-                                            init_len+=1
-                                            if init_len>total:
-                                                line = re.sub(r'cline{2-7}', r'hline', line)
                                             if ispositive == '阳性':
-                                                if init_len>total:
-                                                    init_len=0
-                                                    total=34
-                                                    OUT.write('\end{xltabular}\n')
-                                                    OUT.write(r'\newpage' + '\n')
-                                                    OUT.write(
-                                                        r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                        + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                                    line+=r'\multirow{' + str(2) + '}{*}{' + drug + '}&'
-                                                line += r'& \multicolumn{6}{ p{12cm} |}{' + genesite + '检测结果阳性。' + abl_idh2[drug][ablgene][ispositive][genesite][2] + r'}\\ \cline{2-7}' + '\n'
-                                                init_len+=2
-                                                
-                                                
+                                                line += r'& \multicolumn{6}{ p{12cm} |}{' + genesite + '检测结果阳性。' + \
+                                                        abl_idh2[drug][ablgene][ispositive][genesite][
+                                                            2] + r'}\\ \cline{2-7}' + '\n'
                                 
                                 else:
                                     genesite = ''
                                     for ispositive in abl_idh2[drug][ablgene].keys():
                                         for genesite in abl_idh2[drug][ablgene][ispositive].keys():
                                             line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 \\ \cline{2-7}' + '\n'
-                                            init_len += 1
-                                            if init_len > total:
-                                                line = re.sub(r'cline{2-7}', r'hline', line)
-                                        if init_len>total:
-                                            init_len=0
-                                            total=34
-                                            OUT.write('\end{xltabular}\n')
-                                            OUT.write(r'\newpage' + '\n')
-                                            OUT.write(
-                                                r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                            line += r'\multirow{' + str(2) + '}{*}{' + drug + '}&'
-                                        line += r'& \multicolumn{6}{ p{12cm} |}{' + genesite+'检测结果阳性。'+abl_idh2[drug][ablgene][ispositive][genesite][2] + r'}\\ \cline{2-7}' + '\n'
-                                        init_len+=2
-                    if re.search('multirow{\d+}{\*}{恩西地平}', line):
-                        drug = '恩西地平'
-                        line = line.strip('\n')
-                        for ablgene in abl_idh2[drug].keys():
-                            n = 0
-                            pos_nagtive = list(abl_idh2[drug][ablgene].keys())
-                            if '阳性' in pos_nagtive:
-                                for ispositive in abl_idh2[drug][ablgene].keys():
-                                    for genesite in abl_idh2[drug][ablgene][ispositive]:
-                                        n += 1
-                                        init_len+=1
-                                        line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 '
-                                        if n == 2 and ispositive == '阴性':
-                                            line += r'\\\hline' + '\n'
-                                        else:
-                                            line += r'\\\cline{2-7}' + '\n'
-                                        if init_len>total:
-                                            line = re.sub(r'cline{2-7}', r'hline', line)
-                                        if ispositive == '阳性':
-                                            if init_len > total:
-                                                init_len = 0
-                                                total = 34
-                                                OUT.write('\end{xltabular}\n')
-                                                OUT.write(r'\newpage' + '\n')
-                                                OUT.write(
-                                                    r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                                    + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                                line += r'\multirow{' + str(2) + '}{*}{' + drug + '}&'
-                                            init_len += 2
-                                            line += r'& \multicolumn{6}{ p{12cm} |}{' + genesite + '检测结果阳性。' + \
-                                                    abl_idh2[drug][ablgene][ispositive][genesite][2] + '}'
-                                            if n == 2:
+                                    line += r'& \multicolumn{6}{ p{12cm} |}{' + \
+                                            abl_idh2[drug][ablgene][ispositive][genesite][2] + r'}\\ \cline{2-7}' + '\n'
+                        if re.search('multirow{\d+}{\*}{恩西地平}', line):
+                            drug = '恩西地平'
+                            line = line.strip('\n')
+                            for ablgene in abl_idh2[drug].keys():
+                                n = 0
+                                pos_nagtive = list(abl_idh2[drug][ablgene].keys())
+                                if '阳性' in pos_nagtive:
+                                    for ispositive in abl_idh2[drug][ablgene].keys():
+                                        for genesite in abl_idh2[drug][ablgene][ispositive]:
+                                            n += 1
+                                            line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 '
+                                            if n == 2 and ispositive == '阴性':
                                                 line += r'\\\hline' + '\n'
                                             else:
                                                 line += r'\\\cline{2-7}' + '\n'
-                                            
-                            
-                            else:
-                                genesite = ''
-                                for ispositive in abl_idh2[drug][ablgene].keys():
-                                    for genesite in abl_idh2[drug][ablgene][ispositive].keys():
-                                        init_len+=1
-                                        line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 \\ \cline{2-7}' + '\n'
-                                    if init_len > total:
-                                        line = re.sub(r'cline{2-7}', r'hline', line)
-                                if init_len > total:
-                                    init_len = 0
-                                    total = 34
-                                    OUT.write('\end{xltabular}\n')
-                                    OUT.write(r'\newpage' + '\n')
-                                    OUT.write(
-                                        r'\begin{xltabular}{\textwidth}{| m{1.8cm}<{\centering} | m{3.5cm}<{\centering} | m{1cm}<{\centering} | m{2cm}<{\centering} | m{1.7cm}<{\centering}| m{2cm}<{\centering} | m{0.8cm}<{\centering} |}' + '\n'
-                                        + r'\arrayrulecolor{深蓝}\hline 药物 & 检测位点 & 检测结果 & 单体型 & 多态性类型 & 结论 & 等级 \\\hline' + '\n')
-                                    line += r'\multirow{' + str(2) + '}{*}{' + drug + '}&'
-                                init_len+=2
-                                line += r'& \multicolumn{6}{ p{12cm} |}{' + abl_idh2[drug][ablgene]['阴性'][genesite][
-                                    2] + r'}\\ \hline' + '\n'
+                                            if ispositive == '阳性':
+                                                line += r'& \multicolumn{6}{ p{12cm} |}{' + genesite + '检测结果阳性。' + \
+                                                        abl_idh2[drug][ablgene][ispositive][genesite][2] + '}'
+                                                if n == 2:
+                                                    line += r'\\\hline' + '\n'
+                                                else:
+                                                    line += r'\\\cline{2-7}' + '\n'
+                                
+                                
+                                else:
+                                    genesite = ''
+                                    for ispositive in abl_idh2[drug][ablgene].keys():
+                                        for genesite in abl_idh2[drug][ablgene][ispositive].keys():
+                                            line += '&' + genesite + '&' + ispositive + r'& - & 耐药 & - & 无 \\ \cline{2-7}' + '\n'
+                                    line += r'& \multicolumn{6}{ p{12cm} |}{' + abl_idh2[drug][ablgene]['阴性'][genesite][
+                                        2] + r'}\\ \hline' + '\n'
                     
                     OUT.write(line)
     
@@ -499,5 +404,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
